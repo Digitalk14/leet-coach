@@ -1,49 +1,74 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { runAgentAction } from "@/agent/actions";
-import { type AgentInput } from "@/agent/core/run-agent";
 import { Markdown } from "@/components/markdown";
 import Anthropic from "@anthropic-ai/sdk";
 
+function messageText(content: Anthropic.MessageParam["content"]) {
+  if (typeof content === "string") return content;
+  return content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export default function Home() {
   const [input, setInput] = useState("");
-  const [result, setResult] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Anthropic.MessageParam[]>([])
+  const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
+  }, [messages]);
+
   const handleSubmit = async () => {
     const next = [...messages, { role: "user", content: input } as const];
     const { text } = await runAgentAction({ messages: next });
     setMessages([...next, { role: "assistant", content: text }]);
-    setInput("")
-    setResult(text);
+    setInput("");
   }
+  console.log(messages);
 
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex w-full max-w-3xl flex-1 flex-col items-stretch gap-10 bg-white px-6 py-16 dark:bg-black sm:px-16">
-        {/* <div className="flex w-full flex-col gap-4">
-          {result?.type === "result" && (
-            <div className="flex w-full flex-col gap-4">
-              <p className="text-sm text-zinc-500">
-                {result.duration_ms} ms · ${result.total_cost_usd.toFixed(4)}
-              </p>
-              {result.subtype === "success" ? (
-                <Markdown>{messages.map(message => message.content).join("\n")}</Markdown>
-              ) : (
-                <p className="text-red-600">{result.errors.join("\n")}</p>
-              )}
-            </div>
-          )}
-        </div> */}
-        {result && (
-          <div className="flex w-full flex-col gap-4">
-            <Markdown>{result}</Markdown>
-          </div>
-        )}
-        <div className="flex w-full gap-4">
-          <input type="text" placeholder="Enter the task" className="flex-1" value={input} onChange={(e) => setInput(e.target.value)} />
-          <button className="bg-blue-500 text-white px-4 py-2 rounded-md" onClick={handleSubmit}>Submit</button>
+    <div className="flex h-dvh flex-col bg-white font-sans dark:bg-black">
+      <main className="relative mx-auto flex h-full w-full max-w-3xl flex-col">
+        <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-6 pb-28">
+          {messages.map((message, index) => {
+            const isUser = message.role === "user";
+            return (
+              <div key={index} className={isUser ? "ml-auto w-fit max-w-[75%]" : "w-full"}>
+                <div
+                  className={
+                    isUser
+                      ? "rounded-3xl bg-[#eef2f6] px-4 py-2.5 dark:bg-zinc-800 [&_p:last-child]:mb-0"
+                      : "[&_p:last-child]:mb-0"
+                  }
+                >
+                  <Markdown>{messageText(message.content)}</Markdown>
+                </div>
+              </div>
+            );
+          })}
         </div>
-
+        <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-white from-60% to-transparent px-4 pt-8 pb-4 dark:from-black">
+          <div className="flex w-full items-center gap-3">
+            <input
+              type="text"
+              placeholder="Enter the task"
+              className="h-11 flex-1 rounded-full border border-zinc-200 bg-white px-4 outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSubmit();
+              }}
+            />
+            <button className="h-11 shrink-0 rounded-full bg-blue-500 px-5 text-white" onClick={handleSubmit}>
+              Submit
+            </button>
+          </div>
+        </div>
       </main>
     </div>
   );
