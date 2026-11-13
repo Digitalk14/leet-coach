@@ -1,38 +1,31 @@
-import {
-  query,
-  SDKMessage,
-  type SDKResultMessage,
-} from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-
-const messages: SDKMessage[] = [];
-
-const reset = () => {
-  messages.length = 0;
-};
+import Anthropic from "@anthropic-ai/sdk";
 
 const MODEL = "claude-sonnet-5-5";
 
-export const runAgent = async (
-  rawInput: string,
-): Promise<SDKResultMessage | null> => {
-  const agentStream = query({
-    prompt: rawInput,
-    options: {
-      systemPrompt: `Ты ментор по LeetCode, помогаешь подсказками, не даёшь готовых решений`,
-      model: MODEL,
-      maxTurns: 10,
-      maxBudgetUsd: 0.2,
-      permissionMode: "dontAsk",
-    },
+const client = new Anthropic({
+  apiKey: process.env["ANTHROPIC_API_KEY"], // This is the default and can be omitted
+});
+
+export type AgentInput = { messages: Anthropic.MessageParam[] };
+
+export type AgentResult = {
+  text: string;
+};
+
+const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions`;
+
+export const runAgent = async ({
+  messages,
+}: AgentInput) => {
+  const message = await client.messages.create({
+    model: MODEL,
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages, // вся история
   });
-  for await (const message of agentStream) {
-    messages.push(message);
-    let result: SDKResultMessage | null = null;
-    if (message.type === "result") {
-      result = message as SDKResultMessage;
-      return result;
-    }
-  }
-  return null;
+  const text = message.content
+    .flatMap((b) => (b.type === "text" ? [b.text] : []))
+    .join("\n");
+  return { text };
 };

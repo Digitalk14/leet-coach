@@ -1,7 +1,7 @@
 "use server";
 
-import { runAgent } from "@/agent/core/run-agent";
+import { runAgent, type AgentInput } from "@/agent/core/run-agent";
 
-export async function runAgentAction(input: string) {
+export async function runAgentAction(input: AgentInput) {
   return runAgent(input);
 }
