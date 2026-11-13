@@ -1,0 +1,1 @@
+export const leetcodeSearch = async (query: string) => {}
