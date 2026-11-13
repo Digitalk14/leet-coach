@@ -24,18 +24,27 @@ export default function Home() {
   }, [messages]);
 
   const handleSubmit = async () => {
-    const next = [...messages, { role: "user", content: input } as const];
-    const { text } = await runAgentAction({ messages: next });
-    setMessages([...next, { role: "assistant", content: text }]);
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    const next = [...messages, { role: "user", content: trimmed } as const];
+    setMessages(next);
     setInput("");
-  }
-  console.log(messages);
+    try {
+      const { messages: newMessages } = await runAgentAction({ messages: next });
+      setMessages(newMessages);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Request failed";
+      setMessages([...next, { role: "assistant", content: message }]);
+    }
+  };
 
   return (
     <div className="flex h-dvh flex-col bg-white font-sans dark:bg-black">
       <main className="relative mx-auto flex h-full w-full max-w-3xl flex-col">
         <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-6 pb-28">
           {messages.map((message, index) => {
+            const text = messageText(message.content);
+            if (!text) return null;
             const isUser = message.role === "user";
             return (
               <div key={index} className={isUser ? "ml-auto w-fit max-w-[75%]" : "w-full"}>
@@ -46,7 +55,7 @@ export default function Home() {
                       : "[&_p:last-child]:mb-0"
                   }
                 >
-                  <Markdown>{messageText(message.content)}</Markdown>
+                  <Markdown>{text}</Markdown>
                 </div>
               </div>
             );
