@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { runAgentAction } from "@/agent/actions";
+import type { TimelineStep } from "@/agent/core/run-agent";
 import { Markdown } from "@/components/markdown";
+import { Timeline } from "@/components/timeline";
 import Anthropic from "@anthropic-ai/sdk";
 
 function messageText(content: Anthropic.MessageParam["content"]) {
@@ -15,6 +17,7 @@ function messageText(content: Anthropic.MessageParam["content"]) {
 export default function Home() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
+  const [stepsByMessage, setStepsByMessage] = useState<(TimelineStep[] | undefined)[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -24,21 +27,37 @@ export default function Home() {
   }, [messages]);
 
   const handleSubmit = async () => {
-    const next = [...messages, { role: "user", content: input } as const];
-    const { text } = await runAgentAction({ messages: next });
-    setMessages([...next, { role: "assistant", content: text }]);
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    const next = [...messages, { role: "user", content: trimmed } as const];
+    setMessages(next);
     setInput("");
-  }
-  console.log(messages);
+    try {
+      const { messages: newMessages, steps } = await runAgentAction({ messages: next });
+      setMessages(newMessages);
+      setStepsByMessage((current) => {
+        const nextSteps = current.slice();
+        nextSteps[newMessages.length - 1] = steps;
+        return nextSteps;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Request failed";
+      setMessages([...next, { role: "assistant", content: message }]);
+    }
+  };
 
   return (
     <div className="flex h-dvh flex-col bg-white font-sans dark:bg-black">
       <main className="relative mx-auto flex h-full w-full max-w-3xl flex-col">
         <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-6 pb-28">
           {messages.map((message, index) => {
+            const text = messageText(message.content);
+            if (!text) return null;
             const isUser = message.role === "user";
+            const steps = stepsByMessage[index];
             return (
               <div key={index} className={isUser ? "ml-auto w-fit max-w-[75%]" : "w-full"}>
+                {!isUser && steps?.length ? <Timeline steps={steps} /> : null}
                 <div
                   className={
                     isUser
@@ -46,7 +65,7 @@ export default function Home() {
                       : "[&_p:last-child]:mb-0"
                   }
                 >
-                  <Markdown>{messageText(message.content)}</Markdown>
+                  <Markdown>{text}</Markdown>
                 </div>
               </div>
             );
