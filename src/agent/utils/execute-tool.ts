@@ -25,9 +25,12 @@ export const DecisionToolSchema = z.object({
   action: z.enum(["leetcodesearch", "final", "failed"]),
   reason: z.string(),
   arguments: z.object({
-    query: z.string().describe(
-      "LeetCode problem slug: lowercase words joined by hyphens, as in the problem URL. Example: 'two-sum', 'longest-substring-without-repeating-characters'"
-    ),
+    query: z
+      .string()
+      .optional()
+      .describe(
+        "LeetCode problem slug: lowercase words joined by hyphens, as in the problem URL. Example: 'two-sum', 'longest-substring-without-repeating-characters'",
+      ),
   }),
   answer: z
     .string()

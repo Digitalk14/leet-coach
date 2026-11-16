@@ -42,9 +42,7 @@ const pushStep = (
   steps.push({ ...step, durationMs: Date.now() - startedAt });
 };
 
-const systemPrompt = `You are a mentor for LeetCode, helping with hints,
-Before giving any hint, always fetch the problem with leetcodesearch. Use only the data from the tool. If the tool returns nothing, respond with failed 
-not giving ready solutions`;
+const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions. Before giving any hint, always fetch the problem with leetcodesearch. Use only the data from the tool. If the tool returns nothing, respond with failed`;
 
 export const runAgent = async ({
   messages,
@@ -64,24 +62,22 @@ export const runAgent = async ({
     });
     const block = response.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") {
-      const text =
-        response.content
-          .filter((b) => b.type === "text")
-          .map((b) => b.text)
-          .join("\n")
-          .trim() || "Agent returned an empty response";
-      history.push({ role: "assistant", content: text });
+      history.push({ role: "assistant", content: response.content });
+      history.push({
+        role: "user",
+        content:
+          "You must respond by calling the decide tool. Do not answer with plain text.",
+      });
       pushStep(
         steps,
         {
           action: "invalid",
-          reason: "Model did not return a decide call",
-          result: text,
+          reason: "Model answered without decide, asking it to retry",
           status: "error",
         },
         startedAt,
       );
-      return { text, messages: history, steps };
+      continue;
     }
 
     const parsed = DecisionSchema.safeParse(block.input);
