@@ -11,9 +11,19 @@ const client = new Anthropic({
 
 export type AgentInput = { messages: Anthropic.MessageParam[] };
 
+export type TimelineStep = {
+  action: "leetcodesearch" | "final" | "failed" | "invalid"; // decision.action
+  reason: string; // decision.reason, «почему модель так решила»
+  input?: unknown; // decision.arguments, например { query: "two-sum" }
+  result?: string; // что вернула тулза, коротко
+  status: "ok" | "error"; // тулза отработала или упала
+  durationMs: number; // сколько занял шаг
+};
+
 export type AgentResult = {
   text: string;
   messages: Anthropic.MessageParam[];
+  steps: TimelineStep[];
 };
 
 const decideTool: Anthropic.Tool = {
@@ -24,6 +34,14 @@ const decideTool: Anthropic.Tool = {
   ) as Anthropic.Tool.InputSchema,
 };
 
+const pushStep = (
+  steps: TimelineStep[],
+  step: Omit<TimelineStep, "durationMs">,
+  startedAt: number,
+) => {
+  steps.push({ ...step, durationMs: Date.now() - startedAt });
+};
+
 const systemPrompt = `You are a mentor for LeetCode, helping with hints,
 Before giving any hint, always fetch the problem with leetcodesearch. Use only the data from the tool. If the tool returns nothing, respond with failed 
 not giving ready solutions`;
@@ -32,8 +50,10 @@ export const runAgent = async ({
   messages,
 }: AgentInput): Promise<AgentResult> => {
   const history = [...messages];
+  const steps: TimelineStep[] = [];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const startedAt = Date.now();
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 1024,
@@ -51,11 +71,22 @@ export const runAgent = async ({
           .join("\n")
           .trim() || "Agent returned an empty response";
       history.push({ role: "assistant", content: text });
-      return { text, messages: history };
+      pushStep(
+        steps,
+        {
+          action: "invalid",
+          reason: "Model did not return a decide call",
+          result: text,
+          status: "error",
+        },
+        startedAt,
+      );
+      return { text, messages: history, steps };
     }
 
     const parsed = DecisionSchema.safeParse(block.input);
     if (!parsed.success) {
+      const message = `Invalid decision: ${parsed.error.message}`;
       history.push({ role: "assistant", content: response.content });
       history.push({
         role: "user",
@@ -63,41 +94,88 @@ export const runAgent = async ({
           {
             type: "tool_result",
             tool_use_id: block.id,
-            content: `Invalid decision: ${parsed.error.message}`,
+            content: message,
             is_error: true,
+          },
+        ],
+      });
+      pushStep(
+        steps,
+        {
+          action: "invalid",
+          reason: message,
+          input: block.input,
+          result: message,
+          status: "error",
+        },
+        startedAt,
+      );
+      continue;
+    }
+    const decision = parsed.data;
+
+    if (decision.action === "leetcodesearch") {
+      let result: string;
+      let status: TimelineStep["status"] = "ok";
+
+      try {
+        result = JSON.stringify((await executeTool(decision)) ?? null);
+      } catch (e) {
+        status = "error";
+        result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
+      }
+      pushStep(
+        steps,
+        {
+          action: decision.action,
+          reason: decision.reason,
+          input: decision.arguments,
+          result,
+          status,
+        },
+        startedAt,
+      );
+      history.push({ role: "assistant", content: response.content });
+      history.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: result,
+            is_error: status === "error",
           },
         ],
       });
       continue;
     }
-    const decision = parsed.data;
 
-    if (decision.action === "final" || decision.action === "failed") {
-      const text =
-        decision.action === "final"
-          ? decision.answer
-          : `Agent failed: ${decision.answer}`;
-      history.push({ role: "assistant", content: text });
-      return { text, messages: history };
-    }
-
-    let result: string;
-
-    try {
-      result = JSON.stringify((await executeTool(decision)) ?? null);
-    } catch (e) {
-      result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
-    }
-    history.push({ role: "assistant", content: response.content });
-    history.push({
-      role: "user",
-      content: [
-        { type: "tool_result", tool_use_id: block.id, content: result },
-      ],
-    });
+    const text =
+      decision.action === "final"
+        ? decision.answer
+        : `Agent failed: ${decision.answer}`;
+    history.push({ role: "assistant", content: text });
+    pushStep(
+      steps,
+      {
+        action: decision.action,
+        reason: decision.reason,
+        result: decision.answer,
+        status: decision.action === "final" ? "ok" : "error",
+      },
+      startedAt,
+    );
+    return { text, messages: history, steps };
   }
 
   const text = "Agent failed: max iterations reached";
   history.push({ role: "assistant", content: text });
-  return { text, messages: history };
+  steps.push({
+    action: "failed",
+    reason: text,
+    result: text,
+    status: "error",
+    durationMs: 0,
+  });
+  return { text, messages: history, steps };
 };

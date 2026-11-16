@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { runAgentAction } from "@/agent/actions";
+import type { TimelineStep } from "@/agent/core/run-agent";
 import { Markdown } from "@/components/markdown";
+import { Timeline } from "@/components/timeline";
 import Anthropic from "@anthropic-ai/sdk";
 
 function messageText(content: Anthropic.MessageParam["content"]) {
@@ -15,6 +17,7 @@ function messageText(content: Anthropic.MessageParam["content"]) {
 export default function Home() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
+  const [stepsByMessage, setStepsByMessage] = useState<(TimelineStep[] | undefined)[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,8 +33,13 @@ export default function Home() {
     setMessages(next);
     setInput("");
     try {
-      const { messages: newMessages } = await runAgentAction({ messages: next });
+      const { messages: newMessages, steps } = await runAgentAction({ messages: next });
       setMessages(newMessages);
+      setStepsByMessage((current) => {
+        const nextSteps = current.slice();
+        nextSteps[newMessages.length - 1] = steps;
+        return nextSteps;
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Request failed";
       setMessages([...next, { role: "assistant", content: message }]);
@@ -46,8 +54,10 @@ export default function Home() {
             const text = messageText(message.content);
             if (!text) return null;
             const isUser = message.role === "user";
+            const steps = stepsByMessage[index];
             return (
               <div key={index} className={isUser ? "ml-auto w-fit max-w-[75%]" : "w-full"}>
+                {!isUser && steps?.length ? <Timeline steps={steps} /> : null}
                 <div
                   className={
                     isUser
