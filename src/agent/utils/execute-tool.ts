@@ -15,17 +15,24 @@ const answerDecision = z.object({
   answer: z.string(),
 });
 
-export const DecisionSchema = z.discriminatedUnion("action", [searchDecision, answerDecision]);
+export const DecisionSchema = z.discriminatedUnion("action", [
+  searchDecision,
+  answerDecision,
+]);
 
 /** Flat object schema for the API. A discriminated union has no root `type`, which Anthropic rejects. */
 export const DecisionToolSchema = z.object({
   action: z.enum(["leetcodesearch", "final", "failed"]),
   reason: z.string(),
-  arguments: z
-    .object({ query: z.string() })
+  arguments: z.object({
+    query: z.string().describe(
+      "LeetCode problem slug: lowercase words joined by hyphens, as in the problem URL. Example: 'two-sum', 'longest-substring-without-repeating-characters'"
+    ),
+  }),
+  answer: z
+    .string()
     .optional()
-    .describe("Required when action is leetcodesearch"),
-  answer: z.string().optional().describe("Required when action is final or failed"),
+    .describe("Required when action is final or failed"),
 });
 
 type Decision = z.infer<typeof DecisionSchema>;

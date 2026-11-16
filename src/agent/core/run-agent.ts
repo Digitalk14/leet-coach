@@ -19,12 +19,18 @@ export type AgentResult = {
 const decideTool: Anthropic.Tool = {
   name: "decide",
   description: "Choose the next step",
-  input_schema: z.toJSONSchema(DecisionToolSchema) as Anthropic.Tool.InputSchema,
+  input_schema: z.toJSONSchema(
+    DecisionToolSchema,
+  ) as Anthropic.Tool.InputSchema,
 };
 
-const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions`;
+const systemPrompt = `You are a mentor for LeetCode, helping with hints,
+Before giving any hint, always fetch the problem with leetcodesearch. Use only the data from the tool. If the tool returns nothing, respond with failed 
+not giving ready solutions`;
 
-export const runAgent = async ({ messages }: AgentInput): Promise<AgentResult> => {
+export const runAgent = async ({
+  messages,
+}: AgentInput): Promise<AgentResult> => {
   const history = [...messages];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -68,7 +74,9 @@ export const runAgent = async ({ messages }: AgentInput): Promise<AgentResult> =
 
     if (decision.action === "final" || decision.action === "failed") {
       const text =
-        decision.action === "final" ? decision.answer : `Agent failed: ${decision.answer}`;
+        decision.action === "final"
+          ? decision.answer
+          : `Agent failed: ${decision.answer}`;
       history.push({ role: "assistant", content: text });
       return { text, messages: history };
     }
