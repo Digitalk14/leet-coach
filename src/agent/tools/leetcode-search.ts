@@ -21,7 +21,10 @@ const toText = (html: string) =>
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-export const leetcodeSearch = async (slugRaw: string) => {
+export const leetcodeSearch = async (
+  slugRaw: string,
+  programmingLanguage: string,
+) => {
   const slug = slugRaw
     .trim()
     .toLowerCase()
@@ -39,7 +42,7 @@ export const leetcodeSearch = async (slugRaw: string) => {
   const { data } = await res.json();
   if (!data?.question) throw new Error(`Problem "${slug}" not found`);
   const q = data.question;
-
+  
   return {
     title: q.title,
     difficulty: q.difficulty,
@@ -47,7 +50,7 @@ export const leetcodeSearch = async (slugRaw: string) => {
     examples: q.exampleTestcases,
     tags: q.topicTags.map((t: { name: string }) => t.name),
     starterCode: q.codeSnippets.find(
-      (s: { langSlug: string }) => s.langSlug === "typescript",
+      (s: { langSlug: string }) => s.langSlug === programmingLanguage,
     )?.code,
   };
 };

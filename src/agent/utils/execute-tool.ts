@@ -45,6 +45,6 @@ export const executeTool = async (decision: Decision) => {
     throw new Error("Invalid action");
   }
 
-  const result = await leetcodeSearch(decision.arguments.query);
+  const result = await leetcodeSearch(decision.arguments.query, "typescript");
   return result;
 };
