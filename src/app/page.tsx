@@ -14,6 +14,7 @@ export default function Home() {
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
   const [chat, setChat] = useState<ChatItem[]>([]);
+  const [problemTitle, setProblemTitle] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
@@ -41,7 +42,7 @@ export default function Home() {
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Request failed";
-      setMessages([...next, { role: "assistant", content: message }]);
+      setMessages(next);
       setChat((current) => [...current, { role: "assistant", text: message }]);
     } finally {
       busy.current = false;
@@ -54,7 +55,11 @@ export default function Home() {
     if (!trimmed || pending) return;
     setInput("");
     const result = await sendMessage(trimmed);
-    if (result) setCode(result.problem?.starterCode ?? "");
+    const p = result?.problem;
+    if (p && p.title !== problemTitle) {
+      setProblemTitle(p.title);
+      setCode(p.starterCode ?? "");
+    }
   };
 
   const handleCodeChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
