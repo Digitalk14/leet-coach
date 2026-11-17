@@ -6,46 +6,55 @@ import { Markdown } from "@/components/markdown";
 import { Timeline } from "@/components/timeline";
 import Anthropic from "@anthropic-ai/sdk";
 
-function messageText(content: Anthropic.MessageParam["content"]) {
-  if (typeof content === "string") return content;
-  return content
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .filter(Boolean)
-    .join("\n\n");
-}
+type ChatItem = { role: "user" | "assistant"; text: string; steps?: TimelineStep[] };
 
 export default function Home() {
   const [input, setInput] = useState("");
   const [code, setCode] = useState("");
+  const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
-  const [stepsByMessage, setStepsByMessage] = useState<(TimelineStep[] | undefined)[]>([]);
+  const [chat, setChat] = useState<ChatItem[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const busy = useRef(false);
 
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
     list.scrollTop = list.scrollHeight;
-  }, [messages]);
+  }, [chat]);
 
-  const handleSubmit = async () => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
-    const next = [...messages, { role: "user", content: trimmed } as const];
+  const sendMessage = async (text: string) => {
+    if (busy.current) return;
+    busy.current = true;
+    setPending(true);
+    const next: Anthropic.MessageParam[] = [...messages, { role: "user", content: text }];
     setMessages(next);
-    setInput("");
+    setChat((current) => [...current, { role: "user", text }]);
     try {
-      const { messages: newMessages, steps } = await runAgentAction({ messages: next });
-      setMessages(newMessages);
-      setStepsByMessage((current) => {
-        const nextSteps = current.slice();
-        nextSteps[newMessages.length - 1] = steps;
-        return nextSteps;
-      });
+      const result = await runAgentAction({ messages: next });
+      setMessages(result.messages);
+      setChat((current) => [
+        ...current,
+        { role: "assistant", text: result.text, steps: result.steps },
+      ]);
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Request failed";
       setMessages([...next, { role: "assistant", content: message }]);
+      setChat((current) => [...current, { role: "assistant", text: message }]);
+    } finally {
+      busy.current = false;
+      setPending(false);
     }
+  };
+
+  const handleSubmit = async () => {
+    const trimmed = input.trim();
+    if (!trimmed || pending) return;
+    setInput("");
+    const result = await sendMessage(trimmed);
+    if (result) setCode(result.problem?.starterCode ?? "");
   };
 
   const handleCodeChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -84,19 +93,21 @@ export default function Home() {
     });
   };
 
+  const handleSubmitSolution = async () => {
+    if (pending) return;
+    await sendMessage("Here is my solution:\n```ts\n" + code + "\n```");
+  };
+
   return (
     <div className="flex h-dvh flex-col bg-white font-sans dark:bg-black">
       <main className="flex min-h-0 w-full flex-1">
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col border-r border-zinc-200 dark:border-zinc-800">
           <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-6 pb-28">
-            {messages.map((message, index) => {
-              const text = messageText(message.content);
-              if (!text) return null;
-              const isUser = message.role === "user";
-              const steps = stepsByMessage[index];
+            {chat.map((item, index) => {
+              const isUser = item.role === "user";
               return (
                 <div key={index} className={isUser ? "ml-auto w-fit max-w-[75%]" : "w-full"}>
-                  {!isUser && steps?.length ? <Timeline steps={steps} /> : null}
+                  {!isUser && item.steps?.length ? <Timeline steps={item.steps} /> : null}
                   <div
                     className={
                       isUser
@@ -104,7 +115,7 @@ export default function Home() {
                         : "[&_p:last-child]:mb-0"
                     }
                   >
-                    <Markdown>{text}</Markdown>
+                    <Markdown>{item.text}</Markdown>
                   </div>
                 </div>
               );
@@ -122,7 +133,11 @@ export default function Home() {
                   if (e.key === "Enter") handleSubmit();
                 }}
               />
-              <button className="h-11 shrink-0 rounded-full bg-blue-500 px-5 text-white" onClick={handleSubmit}>
+              <button
+                className="h-11 shrink-0 rounded-full bg-blue-500 px-5 text-white disabled:opacity-50"
+                onClick={handleSubmit}
+                disabled={pending}
+              >
                 Submit
               </button>
             </div>
@@ -131,6 +146,13 @@ export default function Home() {
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex h-11 shrink-0 items-center border-b border-zinc-200 px-4 text-sm text-zinc-500 dark:border-zinc-800">
             Code
+            <button
+              className="ml-auto rounded-md bg-blue-500 px-4 py-2 text-white disabled:opacity-50"
+              onClick={handleSubmitSolution}
+              disabled={pending}
+            >
+              Submit solution
+            </button>
           </div>
           <textarea
             ref={editorRef}

@@ -24,6 +24,7 @@ export type AgentResult = {
   text: string;
   messages: Anthropic.MessageParam[];
   steps: TimelineStep[];
+  problem?: { title: string; starterCode: string };
 };
 
 const decideTool: Anthropic.Tool = {
@@ -49,6 +50,7 @@ export const runAgent = async ({
 }: AgentInput): Promise<AgentResult> => {
   const history = [...messages];
   const steps: TimelineStep[] = [];
+  let problem: AgentResult["problem"];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const startedAt = Date.now();
@@ -62,6 +64,25 @@ export const runAgent = async ({
     });
     const block = response.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") {
+      const text = response.content
+        .map((b) => (b.type === "text" ? b.text : ""))
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+      if (text) {
+        history.push({ role: "assistant", content: text });
+        pushStep(
+          steps,
+          {
+            action: "final",
+            reason: "Model answered in text",
+            result: text,
+            status: "ok",
+          },
+          startedAt,
+        );
+        return { text, messages: history, steps, problem };
+      }
       history.push({ role: "assistant", content: response.content });
       history.push({
         role: "user",
@@ -113,9 +134,11 @@ export const runAgent = async ({
     if (decision.action === "leetcodesearch") {
       let result: string;
       let status: TimelineStep["status"] = "ok";
-
       try {
-        result = JSON.stringify((await executeTool(decision)) ?? null);
+        const data = await executeTool(decision);
+        result = JSON.stringify(data ?? null);
+        if (data)
+          problem = { title: data.title, starterCode: data.starterCode };
       } catch (e) {
         status = "error";
         result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
@@ -161,7 +184,7 @@ export const runAgent = async ({
       },
       startedAt,
     );
-    return { text, messages: history, steps };
+    return { text, messages: history, steps, problem };
   }
 
   const text = "Agent failed: max iterations reached";
@@ -173,5 +196,5 @@ export const runAgent = async ({
     status: "error",
     durationMs: 0,
   });
-  return { text, messages: history, steps };
+  return { text, messages: history, steps, problem };
 };
