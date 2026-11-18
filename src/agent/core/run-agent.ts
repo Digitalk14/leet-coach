@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { runTests } from "../tools";
 import { executeTool, DecisionSchema, DecisionToolSchema } from "../utils";
 
 const MODEL = "claude-sonnet-5-5";
@@ -9,10 +10,21 @@ const client = new Anthropic({
   apiKey: process.env["ANTHROPIC_API_KEY"], // This is the default and can be omitted
 });
 
-export type AgentInput = { messages: Anthropic.MessageParam[] };
+export type Problem = {
+  title: string;
+  starterCode: string;
+  functionName: string;
+  tests: unknown[][];
+};
+
+export type AgentInput = {
+  messages: Anthropic.MessageParam[];
+  code?: string;
+  problem?: Problem;
+};
 
 export type TimelineStep = {
-  action: "leetcodesearch" | "final" | "failed" | "invalid"; // decision.action
+  action: "leetcodesearch" | "run_tests" | "final" | "failed" | "invalid"; // decision.action
   reason: string; // decision.reason, «почему модель так решила»
   input?: unknown; // decision.arguments, например { query: "two-sum" }
   result?: string; // что вернула тулза, коротко
@@ -24,7 +36,7 @@ export type AgentResult = {
   text: string;
   messages: Anthropic.MessageParam[];
   steps: TimelineStep[];
-  problem?: { title: string; starterCode: string };
+  problem?: Problem;
 };
 
 const decideTool: Anthropic.Tool = {
@@ -43,14 +55,16 @@ const pushStep = (
   steps.push({ ...step, durationMs: Date.now() - startedAt });
 };
 
-const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions. Before giving any hint, always fetch the problem with leetcodesearch. Use only the data from the tool. If the tool returns nothing, respond with failed`;
+const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions. Before giving any hint, always fetch the problem with leetcodesearch. When the user submits a solution, call run_tests first. Compare the outputs with the expected outputs from the problem description and base your feedback on them. Use only the data from the tool. If the tool returns nothing, respond with failed`;
 
 export const runAgent = async ({
   messages,
+  code,
+  problem: loadedProblem,
 }: AgentInput): Promise<AgentResult> => {
   const history = [...messages];
   const steps: TimelineStep[] = [];
-  let problem: AgentResult["problem"];
+  let problem = loadedProblem;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const startedAt = Date.now();
@@ -137,8 +151,14 @@ export const runAgent = async ({
       try {
         const data = await executeTool(decision);
         result = JSON.stringify(data ?? null);
-        if (data)
-          problem = { title: data.title, starterCode: data.starterCode };
+        if (data) {
+          problem = {
+            title: data.title,
+            starterCode: data.starterCode ?? "",
+            functionName: data.functionName,
+            tests: data.tests,
+          };
+        }
       } catch (e) {
         status = "error";
         result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
@@ -149,6 +169,46 @@ export const runAgent = async ({
           action: decision.action,
           reason: decision.reason,
           input: decision.arguments,
+          result,
+          status,
+        },
+        startedAt,
+      );
+      history.push({ role: "assistant", content: response.content });
+      history.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: result,
+            is_error: status === "error",
+          },
+        ],
+      });
+      continue;
+    }
+
+    if (decision.action === "run_tests") {
+      let result: string;
+      let status: TimelineStep["status"] = "ok";
+      if (!code || !problem) {
+        status = "error";
+        result = "No code or problem loaded";
+      } else {
+        try {
+          const results = runTests(code, problem.functionName, problem.tests);
+          result = JSON.stringify(results);
+        } catch (e) {
+          status = "error";
+          result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
+        }
+      }
+      pushStep(
+        steps,
+        {
+          action: decision.action,
+          reason: decision.reason,
           result,
           status,
         },
