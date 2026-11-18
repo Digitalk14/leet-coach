@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { leetcodeSearch, runTests } from "../tools";
+import { leetcodeSearch } from "../tools";
 
 const searchDecision = z.object({
   action: z.literal("leetcodesearch"),
@@ -10,12 +10,8 @@ const searchDecision = z.object({
 });
 
 const runTestsDecision = z.object({
-  action: z.literal("runtests"),
+  action: z.literal("run_tests"),
   reason: z.string(),
-  arguments: z.object({
-    code: z.string(),
-    tests: z.string(),
-  }),
 });
 
 const answerDecision = z.object({
@@ -32,16 +28,23 @@ export const DecisionSchema = z.discriminatedUnion("action", [
 
 /** Flat object schema for the API. A discriminated union has no root `type`, which Anthropic rejects. */
 export const DecisionToolSchema = z.object({
-  action: z.enum(["leetcodesearch", "final", "failed"]),
+  action: z
+    .enum(["leetcodesearch", "run_tests", "final", "failed"])
+    .describe(
+      "leetcodesearch fetches a problem and needs arguments.query. run_tests runs the solution already loaded on the server and takes no arguments. final or failed ends the turn and needs answer.",
+    ),
   reason: z.string(),
-  arguments: z.object({
-    query: z
-      .string()
-      .optional()
-      .describe(
-        "LeetCode problem slug: lowercase words joined by hyphens, as in the problem URL. Example: 'two-sum', 'longest-substring-without-repeating-characters'",
-      ),
-  }),
+  arguments: z
+    .object({
+      query: z
+        .string()
+        .optional()
+        .describe(
+          "LeetCode problem slug: lowercase words joined by hyphens, as in the problem URL. Example: 'two-sum', 'longest-substring-without-repeating-characters'",
+        ),
+    })
+    .optional()
+    .describe("Required for leetcodesearch. Omit for run_tests."),
   answer: z
     .string()
     .optional()
@@ -54,15 +57,6 @@ export const executeTool = async (decision: Decision) => {
   if (decision.action !== "leetcodesearch") {
     throw new Error("Invalid action");
   }
-  if (decision.action === "runtests") {
-    const result = await runTests(
-      decision.arguments.code,
-      decision.arguments.tests,
-      decision.arguments.functionName,
-    );
-    return result;
-  }
 
-  const result = await leetcodeSearch(decision.arguments.query, "typescript");
-  return result;
+  return leetcodeSearch(decision.arguments.query, "typescript");
 };

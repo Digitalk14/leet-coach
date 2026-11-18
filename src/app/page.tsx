@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { runAgentAction } from "@/agent/actions";
-import type { TimelineStep } from "@/agent/core/run-agent";
+import type { Problem, TimelineStep } from "@/agent/core/run-agent";
 import { Markdown } from "@/components/markdown";
 import { Timeline } from "@/components/timeline";
 import Anthropic from "@anthropic-ai/sdk";
@@ -14,7 +14,7 @@ export default function Home() {
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
   const [chat, setChat] = useState<ChatItem[]>([]);
-  const [problemTitle, setProblemTitle] = useState<string | null>(null);
+  const [problem, setProblem] = useState<Problem | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
@@ -33,8 +33,13 @@ export default function Home() {
     setMessages(next);
     setChat((current) => [...current, { role: "user", text }]);
     try {
-      const result = await runAgentAction({ messages: next });
+      const result = await runAgentAction({
+        messages: next,
+        code,
+        problem: problem ?? undefined,
+      });
       setMessages(result.messages);
+      if (result.problem) setProblem(result.problem);
       setChat((current) => [
         ...current,
         { role: "assistant", text: result.text, steps: result.steps },
@@ -53,13 +58,11 @@ export default function Home() {
   const handleSubmit = async () => {
     const trimmed = input.trim();
     if (!trimmed || pending) return;
+    const knownTitle = problem?.title;
     setInput("");
     const result = await sendMessage(trimmed);
     const p = result?.problem;
-    if (p && p.title !== problemTitle) {
-      setProblemTitle(p.title);
-      setCode(p.starterCode ?? "");
-    }
+    if (p && p.title !== knownTitle) setCode(p.starterCode ?? "");
   };
 
   const handleCodeChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
