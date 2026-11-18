@@ -7,8 +7,21 @@ const QUERY = `
       exampleTestcases
       topicTags { name }
       codeSnippets { langSlug code }
+      metaData
     }
   }`;
+
+type Meta = { name: string; params: { name: string; type: string }[] };
+const parseTests = (raw: string, paramCount: number): unknown[][] => {
+  const lines = raw.split("\n").filter(Boolean);
+  const tests: unknown[][] = [];
+  for (let i = 0; i < lines.length; i += paramCount) {
+    const test = lines.slice(i, i + paramCount).map(line => JSON.parse(line));
+    tests.push(test);
+  }
+  // твой код: бери по paramCount строк, каждую через JSON.parse
+  return tests;
+};
 
 const toText = (html: string) =>
   html
@@ -42,7 +55,10 @@ export const leetcodeSearch = async (
   const { data } = await res.json();
   if (!data?.question) throw new Error(`Problem "${slug}" not found`);
   const q = data.question;
-  
+  const meta: Meta = JSON.parse(q.metaData);
+  const tests = parseTests(q.exampleTestcases, meta.params.length);
+  console.log(tests);
+
   return {
     title: q.title,
     difficulty: q.difficulty,
@@ -52,5 +68,7 @@ export const leetcodeSearch = async (
     starterCode: q.codeSnippets.find(
       (s: { langSlug: string }) => s.langSlug === programmingLanguage,
     )?.code,
+    functionName: meta.name,
+    tests,
   };
 };
