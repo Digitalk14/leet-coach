@@ -57,7 +57,6 @@ export const leetcodeSearch = async (
   const q = data.question;
   const meta: Meta = JSON.parse(q.metaData);
   const tests = parseTests(q.exampleTestcases, meta.params.length);
-  console.log(tests);
 
   return {
     title: q.title,

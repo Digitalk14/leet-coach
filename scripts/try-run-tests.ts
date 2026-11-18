@@ -1,4 +1,4 @@
-import { runTests } from "../run-tests";
+import { runTests } from "../src/agent/tools/run-tests";
 
 const code = `function twoSum(nums: number[], target: number): number[] {
   const seen = new Map<number, number>();
@@ -10,5 +10,9 @@ const code = `function twoSum(nums: number[], target: number): number[] {
   return [];
 }`;
 
-const tests = [[[2, 7, 11, 15], 9], [[3, 2, 4], 6], [[3, 3], 6]];
+const tests = [
+  [[2, 7, 11, 15], 9],
+  [[3, 2, 4], 6],
+  [[3, 3], 6],
+];
 console.log(JSON.stringify(runTests(code, "twoSum", tests), null, 2));
