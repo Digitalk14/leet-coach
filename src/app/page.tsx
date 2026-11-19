@@ -15,6 +15,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
   const [chat, setChat] = useState<ChatItem[]>([]);
   const [problem, setProblem] = useState<Problem | null>(null);
+  const sessionId = useRef<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
