@@ -67,7 +67,7 @@ export const runAgent = async ({
   const steps: TimelineStep[] = [];
   let problem = loadedProblem;
 
-  return startActiveObservation("call-to-llm", async (trace) => {
+  return startActiveObservation("agent-run", async (trace) => {
     trace.update({ input: messages.at(-1) });
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const startedAt = Date.now();
@@ -169,7 +169,7 @@ export const runAgent = async ({
         let status: TimelineStep["status"] = "ok";
         try {
           const data = await startActiveObservation(
-            "execute-tool",
+            "leetcodesearch-tool",
             async (trace) => {
               trace.update({ input: decision });
               return await executeTool(decision);
@@ -225,7 +225,7 @@ export const runAgent = async ({
           const currentProblem = problem;
           try {
             const results = await startActiveObservation(
-              "run-tests",
+              "run-tests-tool",
               async (trace) => {
                 trace.update({
                   input: {
@@ -240,6 +240,7 @@ export const runAgent = async ({
                   currentProblem.tests,
                 );
               },
+              { asType: "tool" },
             );
             result = JSON.stringify(results);
           } catch (e) {

@@ -5,7 +5,6 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@anthropic-ai/claude-agent-sdk",
     "@anthropic-ai/sdk",
-    "@arizeai/openinference-instrumentation-anthropic",
     "@langfuse/otel",
     "@langfuse/tracing",
     "@opentelemetry/sdk-node",

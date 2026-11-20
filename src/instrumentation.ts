@@ -1,11 +1,6 @@
-import * as dotenv from "dotenv";
-
-dotenv.config({ path: "../.env" });
-import { NodeSDK } from "@opentelemetry/sdk-node";
-import { LangfuseSpanProcessor } from "@langfuse/otel";
-
-export const sdk = new NodeSDK({
-  spanProcessors: [new LangfuseSpanProcessor()],
-});
-
-sdk.start();
+export async function register() {
+  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  const { NodeSDK } = await import("@opentelemetry/sdk-node");
+  const { LangfuseSpanProcessor } = await import("@langfuse/otel");
+  new NodeSDK({ spanProcessors: [new LangfuseSpanProcessor()] }).start();
+}
