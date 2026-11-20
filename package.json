@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
+    "@langfuse/otel": "^6.1.1",
+    "@langfuse/tracing": "^6.1.1",
+    "@opentelemetry/sdk-node": "0.223.2",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",

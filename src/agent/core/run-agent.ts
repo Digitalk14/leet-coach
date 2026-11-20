@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { runTests } from "../tools";
 import { executeTool, DecisionSchema, DecisionToolSchema } from "../utils";
 
@@ -18,6 +19,7 @@ export type Problem = {
 };
 
 export type AgentInput = {
+  sessionId: string;
   messages: Anthropic.MessageParam[];
   code?: string;
   problem?: Problem;
@@ -57,25 +59,46 @@ const pushStep = (
 
 const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions. Before giving any hint, always fetch the problem with leetcodesearch. When the user submits a solution, call run_tests first. Compare the outputs with the expected outputs from the problem description and base your feedback on them. Use only the data from the tool. If the tool returns nothing, respond with failed`;
 
-export const runAgent = async ({
-  messages,
+const runLoop = async ({
+  history,
   code,
   problem: loadedProblem,
-}: AgentInput): Promise<AgentResult> => {
-  const history = [...messages];
+  sessionId,
+}: {
+  history: Anthropic.MessageParam[];
+  code?: string;
+  problem?: Problem;
+  sessionId: string;
+}): Promise<AgentResult> => {
   const steps: TimelineStep[] = [];
   let problem = loadedProblem;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const startedAt = Date.now();
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: history,
-      tools: [decideTool],
-      tool_choice: { type: "auto" },
-    });
+    const response = await startActiveObservation(
+      "llm-call",
+      async (gen) => {
+        const r = await client.messages.create({
+          model: MODEL,
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [...history],
+          tools: [decideTool],
+          tool_choice: { type: "auto" },
+        });
+        gen.update({
+          model: MODEL,
+          usageDetails: {
+            input: r.usage.input_tokens,
+            output: r.usage.output_tokens,
+          },
+          output: r.content,
+        });
+        return r;
+      },
+      { asType: "generation" },
+    );
+
     const block = response.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") {
       const text = response.content
@@ -149,7 +172,16 @@ export const runAgent = async ({
       let result: string;
       let status: TimelineStep["status"] = "ok";
       try {
-        const data = await executeTool(decision);
+        const data = await propagateAttributes({ sessionId }, () =>
+          startActiveObservation(
+            "leetcodesearch-tool",
+            async (trace) => {
+              trace.update({ input: decision });
+              return await executeTool(decision);
+            },
+            { asType: "tool" },
+          ),
+        );
         result = JSON.stringify(data ?? null);
         if (data) {
           problem = {
@@ -196,8 +228,26 @@ export const runAgent = async ({
         status = "error";
         result = "No code or problem loaded";
       } else {
+        const currentProblem = problem;
         try {
-          const results = runTests(code, problem.functionName, problem.tests);
+          const results = await startActiveObservation(
+            "run-tests-tool",
+            async (trace) => {
+              trace.update({
+                input: {
+                  code,
+                  functionName: currentProblem.functionName,
+                  tests: currentProblem.tests,
+                },
+              });
+              return runTests(
+                code,
+                currentProblem.functionName,
+                currentProblem.tests,
+              );
+            },
+            { asType: "tool" },
+          );
           result = JSON.stringify(results);
         } catch (e) {
           status = "error";
@@ -257,4 +307,25 @@ export const runAgent = async ({
     durationMs: 0,
   });
   return { text, messages: history, steps, problem };
+};
+
+export const runAgent = async ({
+  messages,
+  code,
+  problem: loadedProblem,
+  sessionId,
+}: AgentInput): Promise<AgentResult> => {
+  const history = [...messages];
+
+  return propagateAttributes({ sessionId }, () =>
+    startActiveObservation("agent-run", async (trace) => {
+      trace.update({ input: messages.at(-1) });
+      return runLoop({
+        history,
+        code,
+        problem: loadedProblem,
+        sessionId,
+      });
+    }),
+  );
 };
