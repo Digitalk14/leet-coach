@@ -15,6 +15,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
   const [chat, setChat] = useState<ChatItem[]>([]);
   const [problem, setProblem] = useState<Problem | null>(null);
+  const sessionId = useRef(crypto.randomUUID());
   const listRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
@@ -37,6 +38,7 @@ export default function Home() {
         messages: next,
         code,
         problem: problem ?? undefined,
+        sessionId: sessionId.current,
       });
       setMessages(result.messages);
       if (result.problem) setProblem(result.problem);
