@@ -99,9 +99,6 @@ const runLoop = async ({
           tools: [decideTool],
           tool_choice: { type: "auto" },
         });
-        usage.inputTokens += response.usage.input_tokens;
-        usage.outputTokens += response.usage.output_tokens;
-        usage.costUsd += calculateCost(response.usage.input_tokens, response.usage.output_tokens);
         gen.update({
           model: MODEL,
           usageDetails: {
@@ -114,6 +111,9 @@ const runLoop = async ({
       },
       { asType: "generation" },
     );
+    usage.inputTokens += response.usage.input_tokens;
+    usage.outputTokens += response.usage.output_tokens;
+    usage.costUsd += calculateCost(response.usage.input_tokens, response.usage.output_tokens);
 
     const block = response.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") {

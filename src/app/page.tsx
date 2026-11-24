@@ -6,7 +6,7 @@ import { Markdown } from "@/components/markdown";
 import { Timeline } from "@/components/timeline";
 import Anthropic from "@anthropic-ai/sdk";
 
-type ChatItem = { role: "user" | "assistant"; text: string; steps?: TimelineStep[]; usage: Usage };
+type ChatItem = { role: "user" | "assistant"; text: string; steps?: TimelineStep[]; usage?: Usage };
 
 export default function Home() {
   const [input, setInput] = useState("");
@@ -32,7 +32,7 @@ export default function Home() {
     setPending(true);
     const next: Anthropic.MessageParam[] = [...messages, { role: "user", content: text }];
     setMessages(next);
-    setChat((current) => [...current, { role: "user", text, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 } }]);
+    setChat((current) => [...current, { role: "user", text }]);
     try {
       const result = await runAgentAction({
         messages: next,
@@ -50,7 +50,7 @@ export default function Home() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Request failed";
       setMessages(next);
-      setChat((current) => [...current, { role: "assistant", text: message, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 } }]);
+      setChat((current) => [...current, { role: "assistant", text: message }]);
     } finally {
       busy.current = false;
       setPending(false);
