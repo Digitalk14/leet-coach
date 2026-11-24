@@ -63,12 +63,10 @@ const runLoop = async ({
   history,
   code,
   problem: loadedProblem,
-  sessionId,
 }: {
   history: Anthropic.MessageParam[];
   code?: string;
   problem?: Problem;
-  sessionId: string;
 }): Promise<AgentResult> => {
   const steps: TimelineStep[] = [];
   let problem = loadedProblem;
@@ -172,15 +170,15 @@ const runLoop = async ({
       let result: string;
       let status: TimelineStep["status"] = "ok";
       try {
-        const data = await propagateAttributes({ sessionId }, () =>
-          startActiveObservation(
-            "leetcodesearch-tool",
-            async (trace) => {
-              trace.update({ input: decision });
-              return await executeTool(decision);
-            },
-            { asType: "tool" },
-          ),
+        const data = await startActiveObservation(
+          "leetcodesearch-tool",
+          async (trace) => {
+            trace.update({ input: decision });
+            const result = await executeTool(decision);
+            trace.update({ output: result });
+            return result;
+          },
+          { asType: "tool" },
         );
         result = JSON.stringify(data ?? null);
         if (data) {
@@ -240,11 +238,13 @@ const runLoop = async ({
                   tests: currentProblem.tests,
                 },
               });
-              return runTests(
+              const result = runTests(
                 code,
                 currentProblem.functionName,
                 currentProblem.tests,
               );
+              trace.update({ output: result });
+              return result;
             },
             { asType: "tool" },
           );
@@ -320,12 +320,13 @@ export const runAgent = async ({
   return propagateAttributes({ sessionId }, () =>
     startActiveObservation("agent-run", async (trace) => {
       trace.update({ input: messages.at(-1) });
-      return runLoop({
+      const result = await runLoop({
         history,
         code,
         problem: loadedProblem,
-        sessionId,
       });
+      trace.update({ output: result.text });
+      return result;
     }),
   );
 };

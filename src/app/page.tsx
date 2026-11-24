@@ -38,7 +38,7 @@ export default function Home() {
         messages: next,
         code,
         problem: problem ?? undefined,
-        sessionId: sessionId.current as string,
+        sessionId: sessionId.current,
       });
       setMessages(result.messages);
       if (result.problem) setProblem(result.problem);
