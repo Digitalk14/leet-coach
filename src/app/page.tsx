@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { runAgentAction } from "@/agent/actions";
-import type { Problem, TimelineStep } from "@/agent/core/run-agent";
+import type { Problem, TimelineStep, Usage } from "@/agent/core/run-agent";
 import { Markdown } from "@/components/markdown";
 import { Timeline } from "@/components/timeline";
 import Anthropic from "@anthropic-ai/sdk";
 
-type ChatItem = { role: "user" | "assistant"; text: string; steps?: TimelineStep[] };
+type ChatItem = { role: "user" | "assistant"; text: string; steps?: TimelineStep[]; usage?: Usage };
 
 export default function Home() {
   const [input, setInput] = useState("");
@@ -44,7 +44,7 @@ export default function Home() {
       if (result.problem) setProblem(result.problem);
       setChat((current) => [
         ...current,
-        { role: "assistant", text: result.text, steps: result.steps },
+        { role: "assistant", text: result.text, steps: result.steps, usage: result.usage },
       ]);
       return result;
     } catch (error) {
@@ -126,6 +126,11 @@ export default function Home() {
                     }
                   >
                     <Markdown>{item.text}</Markdown>
+                    {item.usage && (
+                      <div className="text-xs text-gray-500">
+                        {item.usage.inputTokens} in / {item.usage.outputTokens} out · ${item.usage.costUsd.toFixed(4)}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

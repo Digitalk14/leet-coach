@@ -6,6 +6,8 @@ import { executeTool, DecisionSchema, DecisionToolSchema } from "../utils";
 
 const MODEL = "claude-sonnet-5-5";
 const MAX_ITERATIONS = 10;
+const PRICE_IN = 2;
+const PRICE_OUT = 10;
 
 const client = new Anthropic({
   apiKey: process.env["ANTHROPIC_API_KEY"], // This is the default and can be omitted
@@ -16,6 +18,12 @@ export type Problem = {
   starterCode: string;
   functionName: string;
   tests: unknown[][];
+};
+
+export type Usage = {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
 };
 
 export type AgentInput = {
@@ -39,6 +47,7 @@ export type AgentResult = {
   messages: Anthropic.MessageParam[];
   steps: TimelineStep[];
   problem?: Problem;
+  usage: Usage;
 };
 
 const decideTool: Anthropic.Tool = {
@@ -59,6 +68,10 @@ const pushStep = (
 
 const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions. Before giving any hint, always fetch the problem with leetcodesearch. When the user submits a solution, call run_tests first. Compare the outputs with the expected outputs from the problem description and base your feedback on them. Use only the data from the tool. If the tool returns nothing, respond with failed`;
 
+const calculateCost = (inputTokens: number, outputTokens: number) => {
+  return (PRICE_IN * inputTokens + PRICE_OUT * outputTokens) / 1000000;
+};
+
 const runLoop = async ({
   history,
   code,
@@ -70,6 +83,8 @@ const runLoop = async ({
 }): Promise<AgentResult> => {
   const steps: TimelineStep[] = [];
   let problem = loadedProblem;
+
+  const usage: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const startedAt = Date.now();
@@ -96,6 +111,9 @@ const runLoop = async ({
       },
       { asType: "generation" },
     );
+    usage.inputTokens += response.usage.input_tokens;
+    usage.outputTokens += response.usage.output_tokens;
+    usage.costUsd += calculateCost(response.usage.input_tokens, response.usage.output_tokens);
 
     const block = response.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") {
@@ -116,7 +134,7 @@ const runLoop = async ({
           },
           startedAt,
         );
-        return { text, messages: history, steps, problem };
+        return { text, messages: history, steps, problem, usage };
       }
       history.push({ role: "assistant", content: response.content });
       history.push({
@@ -294,7 +312,7 @@ const runLoop = async ({
       },
       startedAt,
     );
-    return { text, messages: history, steps, problem };
+    return { text, messages: history, steps, problem, usage };
   }
 
   const text = "Agent failed: max iterations reached";
@@ -306,7 +324,7 @@ const runLoop = async ({
     status: "error",
     durationMs: 0,
   });
-  return { text, messages: history, steps, problem };
+  return { text, messages: history, steps, problem, usage };
 };
 
 export const runAgent = async ({
