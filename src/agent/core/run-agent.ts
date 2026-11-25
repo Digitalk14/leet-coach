@@ -26,11 +26,17 @@ export type Usage = {
   costUsd: number;
 };
 
+export type AgentEvent =
+  | { type: "tool_call"; name: string; input: unknown }
+  | { type: "tool_result"; name: string; output: unknown; isError?: boolean }
+  | { type: "final"; text: string; usage: Usage };
+
 export type AgentInput = {
   sessionId: string;
   messages: Anthropic.MessageParam[];
   code?: string;
   problem?: Problem;
+  onEvent?: (event: AgentEvent) => void;
 };
 
 export type TimelineStep = {
@@ -76,10 +82,12 @@ const runLoop = async ({
   history,
   code,
   problem: loadedProblem,
+  onEvent,
 }: {
   history: Anthropic.MessageParam[];
   code?: string;
   problem?: Problem;
+  onEvent?: (event: AgentEvent) => void;
 }): Promise<AgentResult> => {
   const steps: TimelineStep[] = [];
   let problem = loadedProblem;
@@ -113,7 +121,10 @@ const runLoop = async ({
     );
     usage.inputTokens += response.usage.input_tokens;
     usage.outputTokens += response.usage.output_tokens;
-    usage.costUsd += calculateCost(response.usage.input_tokens, response.usage.output_tokens);
+    usage.costUsd += calculateCost(
+      response.usage.input_tokens,
+      response.usage.output_tokens,
+    );
 
     const block = response.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") {
@@ -188,6 +199,7 @@ const runLoop = async ({
       let result: string;
       let status: TimelineStep["status"] = "ok";
       try {
+        onEvent?.({ type: "tool_call", name: "leetcodesearch", input: decision });
         const data = await startActiveObservation(
           "leetcodesearch-tool",
           async (trace) => {
@@ -246,6 +258,15 @@ const runLoop = async ({
       } else {
         const currentProblem = problem;
         try {
+          onEvent?.({
+            type: "tool_call",
+            name: "run_tests",
+            input: {
+              code,
+              functionName: currentProblem.functionName,
+              tests: currentProblem.tests,
+            },
+          });
           const results = await startActiveObservation(
             "run-tests-tool",
             async (trace) => {
@@ -270,6 +291,12 @@ const runLoop = async ({
         } catch (e) {
           status = "error";
           result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
+          onEvent?.({
+            type: "tool_result",
+            name: "run_tests",
+            output: result,
+            isError: true,
+          });
         }
       }
       pushStep(
@@ -301,6 +328,7 @@ const runLoop = async ({
       decision.action === "final"
         ? decision.answer
         : `Agent failed: ${decision.answer}`;
+    onEvent?.({ type: "final", text, usage });
     history.push({ role: "assistant", content: text });
     pushStep(
       steps,
