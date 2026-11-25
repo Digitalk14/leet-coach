@@ -145,6 +145,7 @@ const runLoop = async ({
           },
           startedAt,
         );
+        onEvent?.({ type: "final", text, usage });
         return { text, messages: history, steps, problem, usage };
       }
       history.push({ role: "assistant", content: response.content });
@@ -219,9 +220,11 @@ const runLoop = async ({
             tests: data.tests,
           };
         }
+        onEvent?.({ type: "tool_result", name: "leetcodesearch", output: result, isError: false });
       } catch (e) {
         status = "error";
         result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
+        onEvent?.({ type: "tool_result", name: "leetcodesearch", output: result, isError: true });
       }
       pushStep(
         steps,
@@ -288,6 +291,7 @@ const runLoop = async ({
             { asType: "tool" },
           );
           result = JSON.stringify(results);
+          onEvent?.({ type: "tool_result", name: "run_tests", output: result, isError: false });
         } catch (e) {
           status = "error";
           result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
@@ -328,7 +332,6 @@ const runLoop = async ({
       decision.action === "final"
         ? decision.answer
         : `Agent failed: ${decision.answer}`;
-    onEvent?.({ type: "final", text, usage });
     history.push({ role: "assistant", content: text });
     pushStep(
       steps,
@@ -340,6 +343,7 @@ const runLoop = async ({
       },
       startedAt,
     );
+    onEvent?.({ type: "final", text, usage });
     return { text, messages: history, steps, problem, usage };
   }
 
@@ -352,6 +356,7 @@ const runLoop = async ({
     status: "error",
     durationMs: 0,
   });
+  onEvent?.({ type: "final", text, usage });
   return { text, messages: history, steps, problem, usage };
 };
 
@@ -360,6 +365,7 @@ export const runAgent = async ({
   code,
   problem: loadedProblem,
   sessionId,
+  onEvent,
 }: AgentInput): Promise<AgentResult> => {
   const history = [...messages];
 
@@ -370,6 +376,7 @@ export const runAgent = async ({
         history,
         code,
         problem: loadedProblem,
+        onEvent,
       });
       trace.update({ output: result.text });
       return result;
