@@ -1,12 +1,36 @@
 "use client";
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
-import { runAgentAction } from "@/agent/actions";
-import type { Problem, TimelineStep, Usage } from "@/agent/core/run-agent";
+import type { AgentResult, Problem, TimelineStep, Usage } from "@/agent/core/run-agent";
 import { Markdown } from "@/components/markdown";
 import { Timeline } from "@/components/timeline";
-import Anthropic from "@anthropic-ai/sdk";
+import { streamAgent } from "@/lib/stream-agent";
+import type Anthropic from "@anthropic-ai/sdk";
 
 type ChatItem = { role: "user" | "assistant"; text: string; steps?: TimelineStep[]; usage?: Usage };
+type LiveStep = {
+  kind: "llm" | "tool";
+  name: string;
+  status: "running" | "ok" | "error";
+  durationMs?: number;
+};
+
+const toolLabel = (name: string) => {
+  if (name === "leetcodesearch") return "Searching problem";
+  if (name === "run_tests") return "Running tests";
+  return name;
+};
+
+const liveStepText = (step: LiveStep) => {
+  if (step.kind === "llm") {
+    if (step.status === "running") return "🤔 Thinking…";
+    const seconds = ((step.durationMs ?? 0) / 1000).toFixed(1);
+    return `💭 Thought for ${seconds}s`;
+  }
+  const name = toolLabel(step.name);
+  if (step.status === "running") return `${name}…`;
+  if (step.status === "error") return `❌ ${name}`;
+  return `✅ ${name}`;
+};
 
 export default function Home() {
   const [input, setInput] = useState("");
@@ -15,42 +39,103 @@ export default function Home() {
   const [messages, setMessages] = useState<Anthropic.MessageParam[]>([]);
   const [chat, setChat] = useState<ChatItem[]>([]);
   const [problem, setProblem] = useState<Problem | null>(null);
-  const sessionId = useRef(crypto.randomUUID());
+  const [liveSteps, setLiveSteps] = useState<LiveStep[]>([]);
+  const sessionId = useRef("");
   const listRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
+
+  const ensureSessionId = () => {
+    if (!sessionId.current) sessionId.current = crypto.randomUUID();
+    return sessionId.current;
+  };
 
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
     list.scrollTop = list.scrollHeight;
-  }, [chat]);
+  }, [chat, liveSteps]);
+
+  const applyResult = (result: AgentResult) => {
+    setMessages(result.messages);
+    if (result.problem) setProblem(result.problem);
+    setChat((current) => [
+      ...current,
+      { role: "assistant", text: result.text, steps: result.steps, usage: result.usage },
+    ]);
+    setLiveSteps([]);
+  };
 
   const sendMessage = async (text: string) => {
     if (busy.current) return;
     busy.current = true;
     setPending(true);
+    setLiveSteps([]);
     const next: Anthropic.MessageParam[] = [...messages, { role: "user", content: text }];
     setMessages(next);
     setChat((current) => [...current, { role: "user", text }]);
+    let result: AgentResult | undefined;
     try {
-      const result = await runAgentAction({
-        messages: next,
-        code,
-        problem: problem ?? undefined,
-        sessionId: sessionId.current,
-      });
-      setMessages(result.messages);
-      if (result.problem) setProblem(result.problem);
-      setChat((current) => [
-        ...current,
-        { role: "assistant", text: result.text, steps: result.steps, usage: result.usage },
-      ]);
+      await streamAgent(
+        {
+          messages: next,
+          code,
+          problem: problem ?? undefined,
+          sessionId: ensureSessionId(),
+        },
+        (event) => {
+          if (event.type === "llm_start") {
+            setLiveSteps((steps) => [...steps, { kind: "llm", name: "thinking", status: "running" }]);
+            return;
+          }
+          if (event.type === "llm_end") {
+            setLiveSteps((steps) => {
+              let index = -1;
+              for (let i = steps.length - 1; i >= 0; i--) {
+                if (steps[i].kind === "llm" && steps[i].status === "running") {
+                  index = i;
+                  break;
+                }
+              }
+              if (index === -1) return steps;
+              return steps.map((step, i) =>
+                i === index ? { ...step, status: "ok", durationMs: event.durationMs } : step,
+              );
+            });
+            return;
+          }
+          if (event.type === "tool_call") {
+            setLiveSteps((steps) => [...steps, { kind: "tool", name: event.name, status: "running" }]);
+            return;
+          }
+          if (event.type === "tool_result") {
+            setLiveSteps((steps) => {
+              const index = steps.findLastIndex((step) => step.kind === "tool" && step.name === event.name);
+              if (index === -1) return steps;
+              return steps.map((step, i) =>
+                i === index ? { ...step, status: event.isError ? "error" : "ok" } : step,
+              );
+            });
+            return;
+          }
+          if (event.type === "done") {
+            result = event.result;
+            applyResult(event.result);
+            return;
+          }
+          if (event.type === "error") {
+            setMessages(next);
+            setChat((current) => [...current, { role: "assistant", text: event.message }]);
+            setLiveSteps([]);
+          }
+        },
+      );
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Request failed";
       setMessages(next);
       setChat((current) => [...current, { role: "assistant", text: message }]);
+      setLiveSteps([]);
     } finally {
       busy.current = false;
       setPending(false);
@@ -135,6 +220,18 @@ export default function Home() {
                 </div>
               );
             })}
+            {pending && (
+              <div className="text-xs text-gray-500">
+                {liveSteps.map((step, index) => (
+                  <div key={`${step.kind}-${step.name}-${index}`} className="flex items-center gap-1.5 animate-fade-in-up">
+                    {step.kind === "tool" && step.status === "running" && (
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+                    )}
+                    <span className={step.status === "running" ? "animate-pulse" : undefined}>{liveStepText(step)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-white from-60% to-transparent px-4 pt-8 pb-4 dark:from-black">
             <div className="flex w-full items-center gap-3">
