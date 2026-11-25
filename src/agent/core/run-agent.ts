@@ -27,6 +27,8 @@ export type Usage = {
 };
 
 export type AgentEvent =
+  | { type: "llm_start" }
+  | { type: "llm_end"; durationMs: number }
   | { type: "tool_call"; name: string; input: unknown }
   | { type: "tool_result"; name: string; output: unknown; isError?: boolean }
   | { type: "final"; text: string; usage: Usage };
@@ -96,6 +98,8 @@ const runLoop = async ({
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const startedAt = Date.now();
+    onEvent?.({ type: "llm_start" });
+    const llmStartedAt = Date.now();
     const response = await startActiveObservation(
       "llm-call",
       async (gen) => {
@@ -119,6 +123,7 @@ const runLoop = async ({
       },
       { asType: "generation" },
     );
+    onEvent?.({ type: "llm_end", durationMs: Date.now() - llmStartedAt });
     usage.inputTokens += response.usage.input_tokens;
     usage.outputTokens += response.usage.output_tokens;
     usage.costUsd += calculateCost(

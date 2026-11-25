@@ -1,6 +1,8 @@
 import type { AgentInput, AgentResult, Usage } from "@/agent/core/run-agent";
 
 export type AgentStreamEvent =
+  | { type: "llm_start" }
+  | { type: "llm_end"; durationMs: number }
   | { type: "tool_call"; name: string; input: unknown }
   | { type: "tool_result"; name: string; output: unknown; isError?: boolean }
   | { type: "final"; text: string; usage: Usage }

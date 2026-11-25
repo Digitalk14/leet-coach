@@ -7,12 +7,29 @@ import { streamAgent } from "@/lib/stream-agent";
 import type Anthropic from "@anthropic-ai/sdk";
 
 type ChatItem = { role: "user" | "assistant"; text: string; steps?: TimelineStep[]; usage?: Usage };
-type LiveStep = { name: string; status: "running" | "ok" | "error" };
+type LiveStep = {
+  kind: "llm" | "tool";
+  name: string;
+  status: "running" | "ok" | "error";
+  durationMs?: number;
+};
 
-const liveStepLabel = (step: LiveStep) => {
-  if (step.status === "running") return `⏳ ${step.name}…`;
-  if (step.status === "error") return `❌ ${step.name}`;
-  return `✅ ${step.name}`;
+const toolLabel = (name: string) => {
+  if (name === "leetcodesearch") return "Searching problem";
+  if (name === "run_tests") return "Running tests";
+  return name;
+};
+
+const liveStepText = (step: LiveStep) => {
+  if (step.kind === "llm") {
+    if (step.status === "running") return "🤔 Thinking…";
+    const seconds = ((step.durationMs ?? 0) / 1000).toFixed(1);
+    return `💭 Thought for ${seconds}s`;
+  }
+  const name = toolLabel(step.name);
+  if (step.status === "running") return `${name}…`;
+  if (step.status === "error") return `❌ ${name}`;
+  return `✅ ${name}`;
 };
 
 export default function Home() {
@@ -67,13 +84,33 @@ export default function Home() {
           sessionId: ensureSessionId(),
         },
         (event) => {
+          if (event.type === "llm_start") {
+            setLiveSteps((steps) => [...steps, { kind: "llm", name: "thinking", status: "running" }]);
+            return;
+          }
+          if (event.type === "llm_end") {
+            setLiveSteps((steps) => {
+              let index = -1;
+              for (let i = steps.length - 1; i >= 0; i--) {
+                if (steps[i].kind === "llm" && steps[i].status === "running") {
+                  index = i;
+                  break;
+                }
+              }
+              if (index === -1) return steps;
+              return steps.map((step, i) =>
+                i === index ? { ...step, status: "ok", durationMs: event.durationMs } : step,
+              );
+            });
+            return;
+          }
           if (event.type === "tool_call") {
-            setLiveSteps((steps) => [...steps, { name: event.name, status: "running" }]);
+            setLiveSteps((steps) => [...steps, { kind: "tool", name: event.name, status: "running" }]);
             return;
           }
           if (event.type === "tool_result") {
             setLiveSteps((steps) => {
-              const index = steps.findLastIndex((step) => step.name === event.name);
+              const index = steps.findLastIndex((step) => step.kind === "tool" && step.name === event.name);
               if (index === -1) return steps;
               return steps.map((step, i) =>
                 i === index ? { ...step, status: event.isError ? "error" : "ok" } : step,
@@ -183,10 +220,15 @@ export default function Home() {
                 </div>
               );
             })}
-            {pending && liveSteps.length > 0 && (
+            {pending && (
               <div className="text-xs text-gray-500">
                 {liveSteps.map((step, index) => (
-                  <div key={`${step.name}-${index}`}>{liveStepLabel(step)}</div>
+                  <div key={`${step.kind}-${step.name}-${index}`} className="flex items-center gap-1.5 animate-fade-in-up">
+                    {step.kind === "tool" && step.status === "running" && (
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+                    )}
+                    <span className={step.status === "running" ? "animate-pulse" : undefined}>{liveStepText(step)}</span>
+                  </div>
                 ))}
               </div>
             )}
