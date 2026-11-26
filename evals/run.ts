@@ -6,7 +6,7 @@ import { cases, type EvalCase } from "./cases";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 config({ path: path.join(root, ".env.local") });
 
-const { runAgent } = await import("../src/agent/core/run-agent.ts");
+const { runAgent } = await import("../src/agent/core/run-agent");
 
 const TOOLS = new Set(["leetcodesearch", "run_tests"]);
 
