@@ -48,6 +48,7 @@ export const cases: EvalCase[] = [
     messages: [{ role: "user", content: "check my code" }],
     code: buggyTwoSum,
     problem: twoSum,
+    forbidTools: ["leetcodesearch"],
     expectTools: ["run_tests"],
   },
   {
