@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { cases, type EvalCase } from "./cases";
+import { judgeHint } from "./judge";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 config({ path: path.join(root, ".env.local") });
@@ -26,8 +27,10 @@ type Row = {
   id: string;
   result: "pass" | "fail";
   tools: string;
-  cost: string;
+  judge: "hint" | "solution" | "—";
+  costUsd: number;
   error?: string;
+  reason?: string;
 };
 
 const rows: Row[] = [];
@@ -42,18 +45,35 @@ for (const evalCase of cases) {
       problem: evalCase.problem,
     });
     const called = calledTools(result.steps);
+    const toolsOk = passed(evalCase, called);
+    let judge: Row["judge"] = "—";
+    let costUsd = result.usage.costUsd;
+    let reason: string | undefined;
+    if (evalCase.judgeHint !== false) {
+      const judged = await judgeHint(
+        result.text,
+        evalCase.problem?.title ?? result.problem?.title,
+      );
+      judge = judged.verdict;
+      costUsd += judged.costUsd;
+      if (!toolsOk || judged.verdict !== "hint") reason = judged.reason;
+    }
+    const hintOk = evalCase.judgeHint === false || judge === "hint";
     rows.push({
       id: evalCase.id,
-      result: passed(evalCase, called) ? "pass" : "fail",
+      result: toolsOk && hintOk ? "pass" : "fail",
       tools: called.join(", ") || "—",
-      cost: money(result.usage.costUsd),
+      judge,
+      costUsd,
+      reason,
     });
   } catch (error) {
     rows.push({
       id: evalCase.id,
       result: "fail",
       tools: "—",
-      cost: money(0),
+      judge: "—",
+      costUsd: 0,
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -61,18 +81,20 @@ for (const evalCase of cases) {
 
 const idWidth = Math.max(2, ...rows.map((row) => row.id.length));
 const toolWidth = Math.max(5, ...rows.map((row) => row.tools.length));
-const header = `${"id".padEnd(idWidth)} | result | ${"tools".padEnd(toolWidth)} | cost`;
+const judgeWidth = Math.max(5, ...rows.map((row) => row.judge.length));
+const header = `${"id".padEnd(idWidth)} | result | ${"tools".padEnd(toolWidth)} | ${"judge".padEnd(judgeWidth)} | cost`;
 console.log(header);
 console.log("-".repeat(header.length));
 for (const row of rows) {
   console.log(
-    `${row.id.padEnd(idWidth)} | ${row.result.padEnd(6)} | ${row.tools.padEnd(toolWidth)} | ${row.cost}`,
+    `${row.id.padEnd(idWidth)} | ${row.result.padEnd(6)} | ${row.tools.padEnd(toolWidth)} | ${row.judge.padEnd(judgeWidth)} | ${money(row.costUsd)}`,
   );
+  if (row.result === "fail" && row.reason) console.log(`  reason: ${row.reason}`);
   if (row.error) console.log(`  error: ${row.error}`);
 }
 
 const passCount = rows.filter((row) => row.result === "pass").length;
-const totalCost = rows.reduce((sum, row) => sum + Number(row.cost.slice(1)), 0);
+const totalCost = rows.reduce((sum, row) => sum + row.costUsd, 0);
 console.log(
   `\n${passCount}/${rows.length} passed, total cost ${money(totalCost)}`,
 );
