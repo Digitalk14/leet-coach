@@ -88,8 +88,6 @@ const buildSystemPrompt = (problem?: Problem, code?: string) => {
   return `${BASE_PROMPT}\n\nCurrent state:\n${state}\n${codeState}`;
 };
 
-const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions. Before giving any hint, always fetch the problem with leetcodesearch. When the user submits a solution, call run_tests first. Compare the outputs with the expected outputs from the problem description and base your feedback on them. Use only the data from the tool. If the tool returns nothing, respond with failed`;
-
 const calculateCost = (inputTokens: number, outputTokens: number) => {
   return (PRICE_IN * inputTokens + PRICE_OUT * outputTokens) / 1000000;
 };
