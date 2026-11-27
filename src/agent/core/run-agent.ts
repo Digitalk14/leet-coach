@@ -74,7 +74,19 @@ const pushStep = (
   steps.push({ ...step, durationMs: Date.now() - startedAt });
 };
 
-const systemPrompt = `You are a mentor for LeetCode, helping with hints, not giving ready solutions. Before giving any hint, always fetch the problem with leetcodesearch. When the user submits a solution, call run_tests first. Compare the outputs with the expected outputs from the problem description and base your feedback on them. Use only the data from the tool. If the tool returns nothing, respond with failed`;
+const BASE_PROMPT = `You are a mentor for LeetCode, helping with hints, not giving ready solutions.
+If no problem is loaded, fetch it with leetcodesearch before giving any hint.
+If a problem is already loaded (see "Current state"), do NOT call leetcodesearch again unless the user asks about a different problem.
+When the user submits code, call run_tests first, compare outputs with the expected ones and base your feedback on them.
+Use only data from tools. If a tool returns nothing, respond with failed.`;
+
+const buildSystemPrompt = (problem?: Problem, code?: string) => {
+  const state = problem
+    ? `Loaded problem: "${problem.title}" (function ${problem.functionName}, ${problem.tests.length} tests).`
+    : "No problem loaded.";
+  const codeState = code ? "User code is attached." : "No user code attached.";
+  return `${BASE_PROMPT}\n\nCurrent state:\n${state}\n${codeState}`;
+};
 
 const calculateCost = (inputTokens: number, outputTokens: number) => {
   return (PRICE_IN * inputTokens + PRICE_OUT * outputTokens) / 1000000;
@@ -106,7 +118,7 @@ const runLoop = async ({
         const r = await client.messages.create({
           model: MODEL,
           max_tokens: 1024,
-          system: systemPrompt,
+          system: buildSystemPrompt(problem, code),
           messages: [...history],
           tools: [decideTool],
           tool_choice: { type: "auto" },
@@ -205,7 +217,11 @@ const runLoop = async ({
       let result: string;
       let status: TimelineStep["status"] = "ok";
       try {
-        onEvent?.({ type: "tool_call", name: "leetcodesearch", input: decision });
+        onEvent?.({
+          type: "tool_call",
+          name: "leetcodesearch",
+          input: decision,
+        });
         const data = await startActiveObservation(
           "leetcodesearch-tool",
           async (trace) => {
@@ -225,11 +241,21 @@ const runLoop = async ({
             tests: data.tests,
           };
         }
-        onEvent?.({ type: "tool_result", name: "leetcodesearch", output: result, isError: false });
+        onEvent?.({
+          type: "tool_result",
+          name: "leetcodesearch",
+          output: result,
+          isError: false,
+        });
       } catch (e) {
         status = "error";
         result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
-        onEvent?.({ type: "tool_result", name: "leetcodesearch", output: result, isError: true });
+        onEvent?.({
+          type: "tool_result",
+          name: "leetcodesearch",
+          output: result,
+          isError: true,
+        });
       }
       pushStep(
         steps,
@@ -296,7 +322,12 @@ const runLoop = async ({
             { asType: "tool" },
           );
           result = JSON.stringify(results);
-          onEvent?.({ type: "tool_result", name: "run_tests", output: result, isError: false });
+          onEvent?.({
+            type: "tool_result",
+            name: "run_tests",
+            output: result,
+            isError: false,
+          });
         } catch (e) {
           status = "error";
           result = `Tool failed: ${e instanceof Error ? e.message : "unknown"}`;
